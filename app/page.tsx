@@ -1,65 +1,180 @@
-import Image from "next/image";
+"use client";
+import React, { useEffect, useState } from 'react';
+import { 
+  Home, BookOpen, Users, Building2, Wallet, UserCheck, 
+  GraduationCap, ArrowUpCircle, ArrowDownCircle, Plus, BookMarked, RotateCcw 
+} from 'lucide-react';
 
-export default function Home() {
+export default function Dashboard() {
+  const [collegeName, setCollegeName] = useState("LibraryPro");
+
+  useEffect(() => {
+    const savedName = localStorage.getItem('collegeName');
+    if (savedName) setCollegeName(savedName);
+  }, []);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="bg-[#f4f7f9] min-h-screen font-sans text-gray-700 pb-10">
+      <div className="max-w-[1600px] mx-auto p-4 lg:p-6">
+        
+        {/* --- TOP HEADER --- */}
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-xl font-bold text-gray-800">{collegeName} Dashboard</h1>
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-500">
+            <Home size={16} className="text-orange-500" />
+            <span>Home</span>
+            <span className="text-gray-300">/</span>
+            <span className="text-blue-500">Dashboard</span>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        {/* --- ROW 1: TOP STATS --- */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+          <StatCard label="Total Titles" value="3,854" icon={<BookOpen />} color="bg-blue-400" />
+          <StatCard label="Total Authors" value="2,907" icon={<Users />} color="bg-green-400" />
+          <StatCard label="Total Publishers" value="1,021" icon={<Building2 />} color="bg-cyan-400" />
+          <StatCard label="Total Book Value" value="₹875,973" icon={<Wallet />} color="bg-purple-400" />
+          <StatCard label="Total Staffs" value="12" icon={<UserCheck />} color="bg-orange-400" />
         </div>
-      </main>
+
+        {/* --- ROW 2: LIBRARY VISUAL & TABLE --- */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
+          <div className="lg:col-span-5 bg-[#1e293b] rounded-2xl overflow-hidden p-6 min-h-[380px] flex flex-col justify-between shadow-sm">
+             <div className="flex items-end gap-2 h-40 mb-2">
+                {[40, 70, 50, 90, 60, 45, 80, 55, 95, 65].map((h, i) => (
+                  <div key={i} style={{ height: `${h}%` }} className={`flex-1 rounded-sm ${['bg-red-400', 'bg-yellow-400', 'bg-green-400', 'bg-blue-400', 'bg-purple-400'][i % 5]}`} />
+                ))}
+             </div>
+             <div className="h-1.5 w-full bg-yellow-600 rounded-full mb-4" />
+             <div className="flex items-end gap-2 h-24">
+                {[60, 40, 85, 30, 75, 50, 90, 40, 60, 70].map((h, i) => (
+                  <div key={i} style={{ height: `${h}%` }} className={`flex-1 rounded-sm ${['bg-orange-400', 'bg-cyan-400', 'bg-pink-400', 'bg-indigo-400', 'bg-emerald-400'][i % 5]}`} />
+                ))}
+             </div>
+             <div className="mt-4 text-white font-semibold flex items-center gap-2">
+               <span className="text-red-500">📍</span> Main Library Hall — Bhusawal Branch
+             </div>
+          </div>
+
+          <div className="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <h3 className="font-bold text-gray-800 mb-4 border-l-4 border-blue-500 pl-3">Recent Book Issues</h3>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-400 text-xs uppercase border-b border-gray-50">
+                  <th className="pb-3 text-left">#</th>
+                  <th className="pb-3 text-left">Book Title</th>
+                  <th className="pb-3 text-left">Member</th>
+                  <th className="pb-3 text-left">Due Date</th>
+                  <th className="pb-3 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <IssueRow id="004" title="Atomic Habits" member="Sneha Joshi" date="Apr 15" status="Issued" />
+                <IssueRow id="005" title="1984" member="Vikram Desai" date="Apr 18" status="Issued" />
+                <IssueRow id="006" title="Rich Dad Poor Dad" member="Nisha More" date="Apr 08" status="Overdue" />
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* --- ROW 3: SQUARE STATS & CHART --- */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          
+          {/* Left: Square Stats Grid */}
+          <div className="lg:col-span-5 grid grid-cols-2 gap-4">
+            <SquareCard label="Total Books" value="6,637" icon={<BookOpen />} color="bg-[#00aeef]" />
+            <SquareCard label="Total Students" value="524" icon={<GraduationCap />} color="bg-[#4d4d4d]" />
+            <SquareCard label="Total Issued" value="196" icon={<ArrowUpCircle />} color="bg-[#f15a24]" />
+            <SquareCard label="Total Received" value="46" icon={<ArrowDownCircle />} color="bg-[#fbb03b]" />
+          </div>
+
+          {/* Right: Monthly Chart & Actions */}
+          <div className="lg:col-span-7 flex flex-col gap-6">
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex-1">
+              <h3 className="font-bold text-gray-800 mb-6 border-l-4 border-green-500 pl-3">Monthly Borrowing — 2026</h3>
+              {/* Simple CSS Chart */}
+              <div className="flex items-end justify-between h-40 gap-1 px-2">
+                {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m) => (
+                  <div key={m} className="flex flex-col items-center flex-1 gap-1">
+                    <div className="flex items-end gap-1 w-full h-32">
+                      <div className="bg-blue-400 w-full rounded-t-sm" style={{ height: `${Math.random() * 100}%` }} />
+                      <div className="bg-green-400 w-full rounded-t-sm" style={{ height: `${Math.random() * 100}%` }} />
+                    </div>
+                    <span className="text-[10px] text-gray-400 font-bold">{m}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-4 mt-6 ml-2">
+                <div className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase">
+                  <div className="w-3 h-3 bg-blue-400 rounded-sm" /> Borrowed
+                </div>
+                <div className="flex items-center gap-2 text-[10px] font-bold text-gray-500 uppercase">
+                  <div className="w-3 h-3 bg-green-400 rounded-sm" /> Returned
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Actions Buttons */}
+            <div className="grid grid-cols-3 gap-4">
+              <ActionButton label="Add Book" icon={<Plus size={18}/>} color="bg-[#2196f3]" />
+              <ActionButton label="Issue Book" icon={<BookMarked size={18}/>} color="bg-[#2ecc71]" />
+              <ActionButton label="Return" icon={<RotateCcw size={18}/>} color="bg-[#e67e22]" />
+            </div>
+          </div>
+
+        </div>
+      </div>
     </div>
+  );
+}
+
+// Sub-components
+function StatCard({ label, value, icon, color }: any) {
+  return (
+    <div className={`${color} text-white p-5 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden`}>
+      <div className="z-10">
+        <p className="text-[10px] font-bold uppercase opacity-80 mb-1">{label}</p>
+        <p className="text-2xl font-black">{value}</p>
+      </div>
+      <div className="bg-white/20 p-2.5 rounded-xl z-10">{icon}</div>
+      <div className="absolute -right-4 -bottom-4 w-20 h-20 bg-white/10 rounded-full" />
+    </div>
+  );
+}
+
+function SquareCard({ label, value, icon, color }: any) {
+  return (
+    <div className={`${color} text-white p-8 rounded-2xl flex flex-col items-center justify-center text-center shadow-sm relative overflow-hidden group`}>
+      <div className="bg-white/20 p-4 rounded-full mb-4 z-10">{React.cloneElement(icon, { size: 32 })}</div>
+      <p className="text-xs font-bold uppercase opacity-80 mb-1 z-10">{label}</p>
+      <p className="text-4xl font-black z-10 tracking-tight">{value}</p>
+      <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full -mr-10 -mt-10 transition-transform group-hover:scale-110" />
+    </div>
+  );
+}
+
+function IssueRow({ id, title, member, date, status }: any) {
+  return (
+    <tr className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
+      <td className="py-4 text-gray-400 font-mono text-xs">{id}</td>
+      <td className="py-4 font-bold text-gray-700">{title}</td>
+      <td className="py-4 text-gray-500">{member}</td>
+      <td className="py-4 text-gray-400">{date}</td>
+      <td className="py-4 text-center">
+        <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-tighter ${
+          status === 'Overdue' ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500'
+        }`}>
+          {status}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+function ActionButton({ label, icon, color }: any) {
+  return (
+    <button className={`${color} text-white flex items-center justify-center gap-2 py-4 rounded-xl font-bold text-sm shadow-md hover:brightness-95 transition-all active:scale-95`}>
+      {icon} {label}
+    </button>
   );
 }
