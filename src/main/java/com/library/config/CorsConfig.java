@@ -15,7 +15,7 @@ public class CorsConfig {
                 
                 // 1. Full Access for Next.js (Management/Admin)
                 registry.addMapping("/**")
-                        .allowedOrigins("http://localhost:3000")
+                        .allowedOrigins("https://ai-library-management-mysql.up.railway.app/")
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                         .allowedHeaders("*");
 
