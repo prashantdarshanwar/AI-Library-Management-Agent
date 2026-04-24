@@ -54,8 +54,6 @@ const menuItems = [
     href: '/students',
     subItems: [
       { label: 'Register Student', href: '/students/add' },
-      { label: 'Student Directory', href: '/students/list' },
-      { label: 'Promotion Manager', href: '/students/promote' },
     ]
   },
 
