@@ -1,6 +1,6 @@
 "use client";
 import React, { useState } from 'react';
-import { Mail, Lock, ArrowRight, Loader2, AlertCircle, Shield, School } from 'lucide-react';
+import { Mail, Lock, Loader2, AlertCircle, Shield, School } from 'lucide-react';
 
 export default function SignupPage({ onSignupSuccess, onBackToLogin }: { 
   onSignupSuccess: () => void, 
@@ -9,7 +9,6 @@ export default function SignupPage({ onSignupSuccess, onBackToLogin }: {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   
-  // Separate college name so it's not sent to the backend
   const [collegeName, setCollegeName] = useState("");
   const [formData, setFormData] = useState({
     email: '',
@@ -23,27 +22,27 @@ export default function SignupPage({ onSignupSuccess, onBackToLogin }: {
     setError("");
 
     try {
-      const response = await fetch('http://localhost:8080/api/auth/register', {
+      // 🌍 DYNAMIC API URL
+      // Uses the Railway variable if it exists, otherwise defaults to localhost for dev
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+      
+      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData), // Sends only email, password, role
+        body: JSON.stringify(formData),
       });
 
       if (response.ok) {
-        // ✅ STORE COLLEGE NAME IN LOCAL STORAGE ONLY
-        if (collegeName.trim()) {
-          localStorage.setItem('collegeName', collegeName);
-        } else {
-          localStorage.setItem('collegeName', 'Examot Institution'); // Default fallback
-        }
-
+        // ✅ Local persistence for UI branding
+        localStorage.setItem('collegeName', collegeName.trim() || 'Examot Institution');
         onSignupSuccess(); 
       } else {
         const data = await response.json().catch(() => ({}));
         setError(data.message || "Registration failed. Email might already exist.");
       }
     } catch (err) {
-      setError("Connection refused. Please ensure your Spring Boot API is running.");
+      // Improved error messaging for deployment issues
+      setError("Cannot connect to server. Please check your internet or API status.");
     } finally {
       setLoading(false);
     }
@@ -55,9 +54,7 @@ export default function SignupPage({ onSignupSuccess, onBackToLogin }: {
         
         <div className="bg-[#2ecc71] p-10 text-center text-white relative">
           <div className="absolute top-4 right-4 bg-white/20 p-1.5 rounded-full">
-            <div title="Admin Account Only">
-              <Shield size={16} />
-            </div>
+            <Shield size={16} title="Admin Account Only" />
           </div>
           <h2 className="text-4xl font-black tracking-tighter italic uppercase">JOIN US</h2>
           <p className="text-green-100 mt-2 text-[10px] uppercase tracking-widest opacity-80 font-bold">
@@ -73,7 +70,6 @@ export default function SignupPage({ onSignupSuccess, onBackToLogin }: {
             </div>
           )}
 
-          {/* NEW: College Name Input (Frontend Only) */}
           <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider">College / School Name</label>
             <div className="relative">
@@ -96,6 +92,7 @@ export default function SignupPage({ onSignupSuccess, onBackToLogin }: {
               <input 
                 required 
                 type="email" 
+                placeholder="admin@college.edu"
                 className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-gray-700 transition-all" 
                 onChange={(e) => setFormData({...formData, email: e.target.value})}
               />
@@ -109,6 +106,7 @@ export default function SignupPage({ onSignupSuccess, onBackToLogin }: {
               <input 
                 required 
                 type="password" 
+                placeholder="••••••••"
                 className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-gray-700 transition-all" 
                 onChange={(e) => setFormData({...formData, password: e.target.value})}
               />
