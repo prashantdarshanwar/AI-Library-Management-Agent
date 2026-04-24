@@ -55,7 +55,9 @@ export default function SignupPage({ onSignupSuccess, onBackToLogin }: {
         
         <div className="bg-[#2ecc71] p-10 text-center text-white relative">
           <div className="absolute top-4 right-4 bg-white/20 p-1.5 rounded-full">
-            <Shield size={16} title="Admin Account Only" />
+            <div title="Admin Account Only">
+              <Shield size={16} />
+            </div>
           </div>
           <h2 className="text-4xl font-black tracking-tighter italic uppercase">JOIN US</h2>
           <p className="text-green-100 mt-2 text-[10px] uppercase tracking-widest opacity-80 font-bold">
