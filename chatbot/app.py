@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import os
 import pandas as pd
+import time
 from groq import Groq
 
 # --- 1. SAFE CONFIGURATION ---
@@ -20,35 +21,35 @@ GROQ_API_KEY = (
 
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-# --- 2. SESSION CACHE (IMPORTANT FALLBACK MEMORY) ---
+
+# --- 2. FALLBACK STATE ---
 if "search_results" not in st.session_state:
     st.session_state.search_results = None
 
 if "last_valid_results" not in st.session_state:
     st.session_state.last_valid_results = None
 
+if "groq_blocked_until" not in st.session_state:
+    st.session_state.groq_blocked_until = 0
+
 if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "assistant",
-        "content": "Greetings. I am the Lead Librarian."
+        "content": "📚 Hello! I am your Library AI Assistant."
     }]
 
 if "show_table" not in st.session_state:
     st.session_state.show_table = False
 
 
-# --- 3. UI CONFIG (UNCHANGED) ---
+# --- 3. UI ---
 PRIMARY_BG = "#0B132B"
 SECONDARY_BG = "#1C2541"
 ACCENT = "#5BC0BE"
 TEXT = "#EAEAEA"
 GOLD = "#C5A059"
 
-st.set_page_config(
-    page_title="AI Library Assistant",
-    page_icon="🏛️",
-    layout="wide"
-)
+st.set_page_config(page_title="AI Library Assistant", page_icon="🏛️", layout="wide")
 
 st.markdown(f"""
 <style>
@@ -85,10 +86,11 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
+
 st.markdown("""
 <div class="header-box">
 <h1 class="header-title">🏛️ AI Library Assistant</h1>
-<p>AI-Powered Academic Assistant</p>
+<p>Smart Academic & Book Discovery System</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -99,55 +101,85 @@ def is_book_query(query):
     return any(k in query.lower() for k in keywords)
 
 
-# 🔥 MULTI-LEVEL LLM FALLBACK SYSTEM
+# --- 5. OFFLINE FALLBACK ENGINE ---
+def offline_ai_response(query, context=None):
+
+    q = query.lower()
+
+    if any(x in q for x in ["java", "python", "ai", "ml", "book"]):
+        return (
+            "📚 Library Offline Mode\n\n"
+            "I cannot access AI right now, but you can still:\n"
+            "- Search books\n"
+            "- Check categories\n"
+            "- View available records"
+        )
+
+    if "location" in q:
+        return "📍 Books are stored in categorized racks (A1–E9)."
+
+    if "available" in q:
+        return "📦 Some books are available in the system, but live AI is offline."
+
+    return "⚠️ AI is temporarily unavailable. Please try again later."
+
+
+# --- 6. GROQ LLM (WITH 429 HANDLING) ---
 def get_groq_chat_response(user_query, context_override=None):
 
+    # ⛔ HARD BLOCK IF QUOTA EXCEEDED
+    if time.time() < st.session_state.groq_blocked_until:
+        return offline_ai_response(user_query, context_override)
+
     if not client:
-        return "⚠️ AI service unavailable (missing API key)."
+        return offline_ai_response(user_query, context_override)
 
     system_prompt = (
-        "You are a Senior University Librarian. Answer clearly and naturally."
+        "You are a Senior University Librarian. Answer clearly and helpfully."
     )
 
     full_query = user_query
     if context_override:
-        full_query = f"User Query: {user_query}\n\nLibrary Data:\n{context_override}"
+        full_query = f"User Query: {user_query}\n\nData:\n{context_override}"
 
-    models = [
-        "llama-3.1-8b-instant",      # primary (fast, cheap)
-        "llama-3.3-70b-versatile"    # backup (powerful)
-    ]
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": full_query}
+            ],
+            temperature=0.4,
+        )
 
-    for model in models:
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": full_query}
-                ],
-                temperature=0.4,
-            )
-            return response.choices[0].message.content
+        return response.choices[0].message.content
 
-        except Exception as e:
-            print(f"Model {model} failed:", e)
-            continue
+    except Exception as e:
 
-    return "⚠️ AI temporarily unavailable. Please try again later."
+        err = str(e).lower()
+
+        # 🚨 HANDLE RATE LIMIT (429)
+        if "429" in err or "tokens per day" in err or "rate limit" in err:
+
+            st.session_state.groq_blocked_until = time.time() + 3600
+
+            return offline_ai_response(user_query, context_override)
+
+        return offline_ai_response(user_query, context_override)
 
 
-# 🔥 BACKEND WITH CACHE FALLBACK
+# --- 7. BACKEND (CACHE SAFE) ---
 def fetch_from_backend(query):
+
     try:
         response = requests.get(
             BACKEND_URL,
             params={"message": query},
-            timeout=8
+            timeout=6
         )
 
         if response.status_code != 200:
-            raise Exception("Bad response")
+            return None
 
         data = response.json()
 
@@ -157,21 +189,17 @@ def fetch_from_backend(query):
 
         if isinstance(data, dict):
             result = data.get("data") or data.get("books")
-
             if result:
                 st.session_state.last_valid_results = result
                 return result
 
         return None
 
-    except Exception as e:
-        print("Backend error:", e)
-
-        # 🔥 RETURN LAST GOOD CACHE
+    except:
         return st.session_state.last_valid_results
 
 
-# --- 5. TABLE UI ---
+# --- 8. TABLE UI ---
 def render_table(data):
     df = pd.DataFrame(data)
     st.markdown("### 📚 Search Results")
@@ -181,15 +209,15 @@ def render_table(data):
     st.download_button("📥 Download CSV", csv, "books.csv")
 
 
-# --- 6. CHAT UI ---
+# --- 9. CHAT UI ---
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-user_input = st.chat_input("Search books, ask concepts, or get summaries...")
+user_input = st.chat_input("Search books or ask anything...")
 
 
-# --- 7. MAIN LOGIC ---
+# --- 10. MAIN LOGIC ---
 if user_input:
 
     st.session_state.messages.append({"role": "user", "content": user_input})
@@ -224,10 +252,7 @@ if user_input:
                 st.session_state.show_table = len(backend_data) > 1
 
             else:
-                reply = (
-                    "⚠️ No live data found right now.\n"
-                    "I can still help you with academic guidance."
-                )
+                reply = offline_ai_response(user_input)
                 st.session_state.show_table = False
 
         # CASE 3: GENERAL AI
@@ -241,6 +266,6 @@ if user_input:
             st.markdown(reply)
 
 
-# --- 8. TABLE DISPLAY ---
+# --- 11. TABLE DISPLAY ---
 if st.session_state.show_table and st.session_state.search_results:
     render_table(st.session_state.search_results)
