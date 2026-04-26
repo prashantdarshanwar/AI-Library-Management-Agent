@@ -23,6 +23,9 @@ GROQ_API_KEY = (
 
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
+# Models (NEW 🔥)
+PRIMARY_MODEL = "llama-3.3-70b-versatile"
+FALLBACK_MODEL = "llama-3.1-8b-instant"
 
 # -----------------------------
 # 2. SESSION STATE
@@ -46,7 +49,7 @@ if "show_table" not in st.session_state:
 
 
 # -----------------------------
-# 3. UI (UNCHANGED STYLE)
+# 3. UI (UNCHANGED)
 # -----------------------------
 PRIMARY_BG = "#0B132B"
 SECONDARY_BG = "#1C2541"
@@ -108,24 +111,22 @@ def is_book_query(query):
 
 
 # -----------------------------
-# 5. OFFLINE AI (SMART ENGINE)
+# 5. OFFLINE ENGINE (CACHE BRAIN)
 # -----------------------------
-def offline_ai_response(query, context=None):
+def offline_ai_response(query):
 
-    q = query.lower().strip()
+    q = query.lower()
     data = st.session_state.get("last_valid_results", [])
 
     if not data:
         return "📚 No cached data available. Please search books first."
 
-    # SHOW ALL
-    if "all" in q or "show books" in q:
+    if "all" in q or "show" in q:
         return "\n".join([
             f"📘 {b['title']} | {b['author']} | Rack {b['location']}"
             for b in data[:10]
         ])
 
-    # LOCATION FIX
     if "location" in q or "where" in q:
         for b in data:
             if any(word in b.get("title","").lower() for word in q.split()):
@@ -136,72 +137,76 @@ def offline_ai_response(query, context=None):
             for b in data[:8]
         ])
 
-    # BOOK MATCH
-    for b in data:
-        if any(word in b.get("title","").lower() for word in q.split()):
-            return (
-                f"📘 {b['title']}\n"
-                f"👨‍🏫 {b['author']}\n"
-                f"📍 Rack {b['location']}\n"
-                f"📦 {'Available' if b['available'] else 'Not Available'}"
-            )
-
-    # AUTHOR
-    if "author" in q or "who wrote" in q:
-        for b in data:
-            if any(word in b.get("author","").lower() for word in q.split()):
-                return f"👨‍🏫 {b['author']} → {b['title']}"
-
-    # AVAILABLE
     if "available" in q:
         available = [b for b in data if b.get("available")]
-        return "\n".join([f"📦 {b['title']} → Rack {b['location']}" for b in available[:10]])
+        return "\n".join([
+            f"📦 {b['title']} → Rack {b['location']}"
+            for b in available[:10]
+        ])
 
-    return "⚠️ Offline Mode: Try 'show books', 'Java book', or 'location'"
+    return "⚠️ Offline Mode Active. Try 'show books' or 'location'"
 
 
 # -----------------------------
-# 6. GROQ (WITH 429 HANDLING)
+# 6. GROQ MODEL ROUTER (NEW 🔥)
 # -----------------------------
+def call_groq(model, user_query, context_override=None):
+
+    system_prompt = "You are a helpful Library AI Assistant."
+
+    full_query = user_query
+    if context_override:
+        full_query = f"{user_query}\n\nDATA:\n{context_override}"
+
+    return client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": full_query}
+        ],
+        temperature=0.4,
+    ).choices[0].message.content
+
+
 def get_groq_chat_response(user_query, context_override=None):
 
+    # ⛔ cooldown after rate limit
     if time.time() < st.session_state.groq_blocked_until:
-        return offline_ai_response(user_query)
+        try:
+            return call_groq(FALLBACK_MODEL, user_query, context_override)
+        except:
+            return offline_ai_response(user_query)
 
     if not client:
         return offline_ai_response(user_query)
 
+    # 1️⃣ PRIMARY MODEL
     try:
-        system_prompt = "You are a helpful Library AI Assistant."
-
-        full_query = user_query
-        if context_override:
-            full_query = f"{user_query}\n\nDATA:\n{context_override}"
-
-        res = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": full_query}
-            ],
-            temperature=0.4,
-        )
-
-        return res.choices[0].message.content
+        return call_groq(PRIMARY_MODEL, user_query, context_override)
 
     except Exception as e:
 
         err = str(e).lower()
 
+        # 🚨 RATE LIMIT HANDLING
         if "429" in err or "rate limit" in err or "tokens per day" in err:
-            st.session_state.groq_blocked_until = time.time() + 3600
-            return offline_ai_response(user_query)
 
-        return offline_ai_response(user_query)
+            st.session_state.groq_blocked_until = time.time() + 3600
+
+            try:
+                return call_groq(FALLBACK_MODEL, user_query, context_override)
+            except:
+                return offline_ai_response(user_query)
+
+        # 🚨 ANY ERROR → fallback model
+        try:
+            return call_groq(FALLBACK_MODEL, user_query, context_override)
+        except:
+            return offline_ai_response(user_query)
 
 
 # -----------------------------
-# 7. BACKEND (ROBUST)
+# 7. BACKEND
 # -----------------------------
 def fetch_from_backend(query):
 
@@ -281,7 +286,7 @@ if user_input:
                 reply = offline_ai_response(user_input)
                 st.session_state.show_table = False
 
-        # GENERAL
+        # GENERAL AI
         else:
             reply = get_groq_chat_response(user_input)
             st.session_state.show_table = False
