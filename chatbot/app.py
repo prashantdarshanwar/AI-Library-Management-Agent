@@ -7,16 +7,37 @@ from groq import Groq
 # --- 1. SAFE CONFIGURATION ---
 DEFAULT_URL = "https://ai-library-management-mysql.up.railway.app/api/books"
 
-try:
-    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
-    BACKEND_URL = st.secrets.get("SPRING_BACKEND_URL", DEFAULT_URL)
-except Exception:
-    GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-    BACKEND_URL = os.getenv("SPRING_BACKEND_URL", DEFAULT_URL)
+BACKEND_URL = (
+    st.secrets.get("SPRING_BACKEND_URL", None)
+    or os.getenv("SPRING_BACKEND_URL")
+    or DEFAULT_URL
+)
+
+GROQ_API_KEY = (
+    st.secrets.get("GROQ_API_KEY", None)
+    or os.getenv("GROQ_API_KEY")
+)
 
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-# --- 2. UI CONFIG ---
+# --- 2. SESSION CACHE (IMPORTANT FALLBACK MEMORY) ---
+if "search_results" not in st.session_state:
+    st.session_state.search_results = None
+
+if "last_valid_results" not in st.session_state:
+    st.session_state.last_valid_results = None
+
+if "messages" not in st.session_state:
+    st.session_state.messages = [{
+        "role": "assistant",
+        "content": "Greetings. I am the Lead Librarian."
+    }]
+
+if "show_table" not in st.session_state:
+    st.session_state.show_table = False
+
+
+# --- 3. UI CONFIG (UNCHANGED) ---
 PRIMARY_BG = "#0B132B"
 SECONDARY_BG = "#1C2541"
 ACCENT = "#5BC0BE"
@@ -24,7 +45,7 @@ TEXT = "#EAEAEA"
 GOLD = "#C5A059"
 
 st.set_page_config(
-    page_title="AI Library Assitant",
+    page_title="AI Library Assistant",
     page_icon="🏛️",
     layout="wide"
 )
@@ -66,129 +87,111 @@ st.markdown(f"""
 
 st.markdown("""
 <div class="header-box">
-<h1 class="header-title">🏛️ AI Library Assitant</h1>
+<h1 class="header-title">🏛️ AI Library Assistant</h1>
 <p>AI-Powered Academic Assistant</p>
 </div>
 """, unsafe_allow_html=True)
 
-# --- 3. SESSION STATE ---
-if "messages" not in st.session_state:
-    st.session_state.messages = [{
-        "role": "assistant",
-        "content": "Greetings. I am the Lead Librarian. How can I assist your research today?"
-    }]
-
-if "search_results" not in st.session_state:
-    st.session_state.search_results = None
-
-if "show_table" not in st.session_state:
-    st.session_state.show_table = False
 
 # --- 4. HELPERS ---
-
 def is_book_query(query):
     keywords = ["book", "author", "title", "find", "search", "available", "location", "where"]
     return any(k in query.lower() for k in keywords)
 
 
+# 🔥 MULTI-LEVEL LLM FALLBACK SYSTEM
 def get_groq_chat_response(user_query, context_override=None):
+
     if not client:
-        return "AI service unavailable."
+        return "⚠️ AI service unavailable (missing API key)."
 
-    try:
-        chat_history = st.session_state.messages[-10:]
+    system_prompt = (
+        "You are a Senior University Librarian. Answer clearly and naturally."
+    )
 
-        system_prompt = (
-            "You are a Senior University Librarian with access to real-time database records.\n\n"
-            "Rules:\n"
-            "- If book data is provided, analyze it and answer naturally\n"
-            "- If asked availability → say available or not\n"
-            "- If asked location → give exact location\n"
-            "- If multiple books → summarize\n"
-            "- Speak like you checked the system\n"
-        )
+    full_query = user_query
+    if context_override:
+        full_query = f"User Query: {user_query}\n\nLibrary Data:\n{context_override}"
 
-        full_query = user_query
-        if context_override:
-            full_query = f"""
-User Question: {user_query}
+    models = [
+        "llama-3.1-8b-instant",      # primary (fast, cheap)
+        "llama-3.3-70b-versatile"    # backup (powerful)
+    ]
 
-Library Records:
-{context_override}
-"""
+    for model in models:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": full_query}
+                ],
+                temperature=0.4,
+            )
+            return response.choices[0].message.content
 
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                *chat_history,
-                {"role": "user", "content": full_query}
-            ],
-            temperature=0.4,
-        )
+        except Exception as e:
+            print(f"Model {model} failed:", e)
+            continue
 
-        return completion.choices[0].message.content
-
-    except Exception as e:
-        return f"Error: {str(e)}"
+    return "⚠️ AI temporarily unavailable. Please try again later."
 
 
-# 🚀 FIXED BACKEND (ROBUST PARSER)
+# 🔥 BACKEND WITH CACHE FALLBACK
 def fetch_from_backend(query):
     try:
-        url = f"{BACKEND_URL}/chat"
-
         response = requests.get(
-            url,
+            BACKEND_URL,
             params={"message": query},
-            timeout=10
+            timeout=8
         )
 
         if response.status_code != 200:
-            return None
+            raise Exception("Bad response")
 
-        # SAFE JSON PARSE
-        try:
-            data = response.json()
-        except:
-            return None
+        data = response.json()
 
-        # CASE 1: direct list
-        if isinstance(data, list):
+        if isinstance(data, list) and len(data) > 0:
+            st.session_state.last_valid_results = data
             return data
 
-        # CASE 2: wrapped responses
         if isinstance(data, dict):
-            if "data" in data:
-                return data["data"]
-            if "books" in data:
-                return data["books"]
+            result = data.get("data") or data.get("books")
+
+            if result:
+                st.session_state.last_valid_results = result
+                return result
 
         return None
 
     except Exception as e:
         print("Backend error:", e)
-        return None
+
+        # 🔥 RETURN LAST GOOD CACHE
+        return st.session_state.last_valid_results
 
 
+# --- 5. TABLE UI ---
 def render_table(data):
     df = pd.DataFrame(data)
     st.markdown("### 📚 Search Results")
     st.dataframe(df, use_container_width=True)
 
-    csv = df.to_csv(index=False).encode('utf-8')
+    csv = df.to_csv(index=False).encode("utf-8")
     st.download_button("📥 Download CSV", csv, "books.csv")
 
 
-# --- 5. CHAT UI ---
+# --- 6. CHAT UI ---
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 user_input = st.chat_input("Search books, ask concepts, or get summaries...")
 
-# --- 6. MAIN LOGIC ---
+
+# --- 7. MAIN LOGIC ---
 if user_input:
+
     st.session_state.messages.append({"role": "user", "content": user_input})
 
     with st.chat_message("user"):
@@ -198,8 +201,10 @@ if user_input:
 
         # CASE 1: SUMMARY
         if "summary" in user_input.lower() and st.session_state.search_results:
-            context = str(st.session_state.search_results)
-            reply = get_groq_chat_response(user_input, context)
+            reply = get_groq_chat_response(
+                user_input,
+                context_override=str(st.session_state.search_results)
+            )
             st.session_state.show_table = False
 
         # CASE 2: BOOK SEARCH
@@ -207,8 +212,7 @@ if user_input:
 
             backend_data = fetch_from_backend(user_input)
 
-            # 🔥 FINAL SAFE CHECK
-            if backend_data is not None and len(backend_data) > 0:
+            if backend_data and len(backend_data) > 0:
 
                 st.session_state.search_results = backend_data
 
@@ -220,7 +224,10 @@ if user_input:
                 st.session_state.show_table = len(backend_data) > 1
 
             else:
-                reply = "No books found."
+                reply = (
+                    "⚠️ No live data found right now.\n"
+                    "I can still help you with academic guidance."
+                )
                 st.session_state.show_table = False
 
         # CASE 3: GENERAL AI
@@ -233,6 +240,7 @@ if user_input:
         with st.chat_message("assistant"):
             st.markdown(reply)
 
-# --- 7. TABLE ---
+
+# --- 8. TABLE DISPLAY ---
 if st.session_state.show_table and st.session_state.search_results:
     render_table(st.session_state.search_results)
