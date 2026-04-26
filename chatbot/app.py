@@ -27,195 +27,59 @@ PRIMARY_MODEL = "llama-3.3-70b-versatile"
 FALLBACK_MODEL = "llama-3.1-8b-instant"
 
 # -----------------------------
-# 2. SESSION STATE
+# 2. SESSION STATE (CHATGPT MEMORY)
 # -----------------------------
-if "search_results" not in st.session_state:
-    st.session_state.search_results = None
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "assistant", "content": "📚 Hello! I am your Library AI Assistant. Ask me anything."}
+    ]
 
 if "last_valid_results" not in st.session_state:
     st.session_state.last_valid_results = None
 
+if "search_results" not in st.session_state:
+    st.session_state.search_results = None
+
 if "groq_blocked_until" not in st.session_state:
     st.session_state.groq_blocked_until = 0
 
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": "📚 Library AI Assistant Ready"}
-    ]
-
-if "show_table" not in st.session_state:
-    st.session_state.show_table = False
-
-
 # -----------------------------
-# 3. UI (UNCHANGED)
+# 3. CHATGPT-STYLE INTENT ENGINE
 # -----------------------------
-PRIMARY_BG = "#0B132B"
-SECONDARY_BG = "#1C2541"
-ACCENT = "#5BC0BE"
-TEXT = "#EAEAEA"
-GOLD = "#C5A059"
+def detect_intent(q):
+    q = q.lower()
 
-st.set_page_config(page_title="AI Library Assistant", page_icon="🏛️", layout="wide")
+    if any(x in q for x in ["summary", "explain", "what is"]):
+        return "explain"
 
-st.markdown(f"""
-<style>
-.stApp {{
-    background: linear-gradient(135deg, {PRIMARY_BG}, #000000);
-    color: {TEXT};
-    font-family: 'Segoe UI';
-}}
-.header-box {{
-    background: linear-gradient(135deg, {SECONDARY_BG}, #16213E);
-    padding: 2rem;
-    border-radius: 16px;
-    border: 1px solid {ACCENT};
-    text-align: center;
-    margin-bottom: 2rem;
-}}
-.header-title {{
-    font-size: 2.5rem;
-    font-weight: bold;
-    color: {GOLD};
-}}
-</style>
-""", unsafe_allow_html=True)
+    if any(x in q for x in ["where", "location", "rack"]):
+        return "location"
 
-st.markdown("""
-<div class="header-box">
-<h1 class="header-title">🏛️ AI Library Assistant</h1>
-<p>Smart Academic Book Intelligence System</p>
-</div>
-""", unsafe_allow_html=True)
+    if any(x in q for x in ["available", "stock"]):
+        return "availability"
 
+    if any(x in q for x in ["book", "java", "ml", "python", "ai"]):
+        return "search"
 
-# -----------------------------
-# 4. HELPERS (FIXED INTENT DETECTION)
-# -----------------------------
-def is_book_query(query):
-    keywords = ["book", "author", "title", "find", "search", "available", "location", "where", "ml", "java", "python"]
-    return any(k in query.lower() for k in keywords)
+    return "general"
 
 
 def extract_keywords(query):
-    """Better keyword extractor (IMPORTANT FIX)"""
-    q = query.lower()
-    words = q.split()
-
-    # remove useless words
-    stop = {"show", "me", "book", "books", "find", "search", "give", "on", "about", "the", "a", "an"}
-
-    return [w for w in words if w not in stop]
+    stop = {"show","me","book","books","find","search","give","on","about","the","a","an"}
+    return [w for w in query.lower().split() if w not in stop]
 
 
-def match_score(book, keywords):
-    """Strict relevance scoring (FIX RANDOM RESULTS)"""
-    text = (
-        book.get("title", "") + " " +
-        book.get("author", "") + " " +
-        book.get("category", "")
-    ).lower()
-
-    score = 0
-    for k in keywords:
-        if k in text:
-            score += 1
-
-    return score
+def score(book, keywords):
+    text = (book.get("title","") + " " + book.get("author","") + " " + book.get("category","")).lower()
+    return sum(1 for k in keywords if k in text)
 
 
 # -----------------------------
-# 5. OFFLINE ENGINE (FIXED ACCURACY)
-# -----------------------------
-def offline_ai_response(query):
-
-    data = st.session_state.get("last_valid_results", [])
-    if not data:
-        return "📚 No cached data available. Please search books first."
-
-    keywords = extract_keywords(query)
-
-    # 🔥 FILTER ONLY RELEVANT RESULTS
-    filtered = sorted(
-        [b for b in data if match_score(b, keywords) > 0],
-        key=lambda x: match_score(x, keywords),
-        reverse=True
-    )
-
-    if not filtered:
-        return "⚠️ No relevant books found for your query."
-
-    if "location" in query.lower() or "where" in query.lower():
-        return "\n".join([
-            f"📍 {b['title']} → Rack {b['location']}"
-            for b in filtered[:5]
-        ])
-
-    if "available" in query.lower():
-        return "\n".join([
-            f"📦 {b['title']} → {'Available' if b['available'] else 'Not Available'}"
-            for b in filtered[:5]
-        ])
-
-    return "\n".join([
-        f"📘 {b['title']} | {b['author']} | Rack {b['location']}"
-        for b in filtered[:8]
-    ])
-
-
-# -----------------------------
-# 6. GROQ (UNCHANGED LOGIC)
-# -----------------------------
-def call_groq(model, user_query, context_override=None):
-
-    system_prompt = "You are a helpful Library AI Assistant."
-
-    full_query = user_query
-    if context_override:
-        full_query = f"{user_query}\n\nDATA:\n{context_override}"
-
-    return client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": full_query}
-        ],
-        temperature=0.4,
-    ).choices[0].message.content
-
-
-def get_groq_chat_response(user_query, context_override=None):
-
-    if time.time() < st.session_state.groq_blocked_until:
-        try:
-            return call_groq(FALLBACK_MODEL, user_query, context_override)
-        except:
-            return offline_ai_response(user_query)
-
-    if not client:
-        return offline_ai_response(user_query)
-
-    try:
-        return call_groq(PRIMARY_MODEL, user_query, context_override)
-
-    except:
-        try:
-            return call_groq(FALLBACK_MODEL, user_query, context_override)
-        except:
-            return offline_ai_response(user_query)
-
-
-# -----------------------------
-# 7. BACKEND (UNCHANGED)
+# 4. SMART BACKEND SEARCH (NO RANDOM RESULTS)
 # -----------------------------
 def fetch_from_backend(query):
-
     try:
         r = requests.get(BACKEND_URL, params={"message": query}, timeout=6)
-
-        if r.status_code != 200:
-            return st.session_state.get("last_valid_results")
-
         data = r.json()
 
         if isinstance(data, list):
@@ -228,72 +92,150 @@ def fetch_from_backend(query):
                 st.session_state.last_valid_results = result
                 return result
 
-        return st.session_state.get("last_valid_results")
+        return st.session_state.last_valid_results
 
     except:
-        return st.session_state.get("last_valid_results")
+        return st.session_state.last_valid_results
+
+
+def smart_filter(data, query):
+    keywords = extract_keywords(query)
+
+    ranked = sorted(
+        [b for b in data if score(b, keywords) > 0],
+        key=lambda x: score(x, keywords),
+        reverse=True
+    )
+
+    return ranked
 
 
 # -----------------------------
-# 8. TABLE
+# 5. OFFLINE BRAIN (CHATGPT STYLE)
 # -----------------------------
-def render_table(data):
-    df = pd.DataFrame(data)
-    st.dataframe(df, use_container_width=True)
+def offline_ai(query):
+
+    data = st.session_state.last_valid_results
+    if not data:
+        return "📚 I don't have cached data. Please search books first."
+
+    intent = detect_intent(query)
+    filtered = smart_filter(data, query)
+
+    if not filtered:
+        return "⚠️ No relevant results found."
+
+    if intent == "location":
+        return "\n".join([f"📍 {b['title']} → Rack {b['location']}" for b in filtered[:5]])
+
+    if intent == "availability":
+        return "\n".join([f"📦 {b['title']} → {'Available' if b['available'] else 'Not Available'}" for b in filtered[:5]])
+
+    return "\n".join([f"📘 {b['title']} | {b['author']} | Rack {b['location']}" for b in filtered[:8]])
 
 
 # -----------------------------
-# 9. CHAT UI
+# 6. GROQ CHATGPT ROUTER
+# -----------------------------
+def call_groq(model, query, context=None):
+
+    system = """
+You are a smart AI Library Assistant like ChatGPT.
+- Be concise
+- Be accurate
+- Use provided data if available
+- Do NOT hallucinate books
+"""
+
+    full = query
+    if context:
+        full = f"{query}\n\nLIBRARY DATA:\n{context}"
+
+    return client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role":"system","content":system},
+            {"role":"user","content":full}
+        ],
+        temperature=0.4,
+    ).choices[0].message.content
+
+
+def chatgpt_engine(query, context=None):
+
+    if time.time() < st.session_state.groq_blocked_until:
+        return offline_ai(query)
+
+    if not client:
+        return offline_ai(query)
+
+    intent = detect_intent(query)
+
+    try:
+        data = call_groq(PRIMARY_MODEL, query, context)
+
+        # If search → attach structured results
+        if intent == "search" and st.session_state.last_valid_results:
+            return data
+
+        return data
+
+    except:
+        try:
+            return call_groq(FALLBACK_MODEL, query, context)
+        except:
+            return offline_ai(query)
+
+
+# -----------------------------
+# 7. UI
 # -----------------------------
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-user_input = st.chat_input("Ask about books...")
+user_input = st.chat_input("Ask me anything about books...")
 
 
 # -----------------------------
-# 10. MAIN LOGIC
+# 8. MAIN CHATGPT FLOW
 # -----------------------------
 if user_input:
 
-    st.session_state.messages.append({"role": "user", "content": user_input})
+    st.session_state.messages.append({"role":"user","content":user_input})
 
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    with st.spinner("Processing..."):
+    with st.spinner("Thinking..."):
 
-        if "summary" in user_input.lower() and st.session_state.search_results:
-            reply = get_groq_chat_response(user_input, str(st.session_state.search_results))
-            st.session_state.show_table = False
+        intent = detect_intent(user_input)
 
-        elif is_book_query(user_input):
+        # SEARCH FLOW
+        if intent == "search":
 
-            backend_data = fetch_from_backend(user_input)
+            data = fetch_from_backend(user_input)
 
-            if backend_data:
-                st.session_state.search_results = backend_data
+            if data:
+                st.session_state.search_results = data
+                filtered = smart_filter(data, user_input)
 
-                reply = get_groq_chat_response(user_input, str(backend_data))
-
-                st.session_state.show_table = len(backend_data) > 1
+                reply = chatgpt_engine(user_input, str(filtered))
             else:
-                reply = offline_ai_response(user_input)
-                st.session_state.show_table = False
+                reply = offline_ai(user_input)
 
+        # OTHER FLOWS
         else:
-            reply = get_groq_chat_response(user_input)
-            st.session_state.show_table = False
+            reply = chatgpt_engine(user_input)
 
-        st.session_state.messages.append({"role": "assistant", "content": reply})
+        st.session_state.messages.append({"role":"assistant","content":reply})
 
         with st.chat_message("assistant"):
             st.markdown(reply)
 
 
 # -----------------------------
-# 11. TABLE OUTPUT
+# 9. TABLE (OPTIONAL LIKE CHATGPT TOOL VIEW)
 # -----------------------------
-if st.session_state.show_table and st.session_state.search_results:
-    render_table(st.session_state.search_results)
+if st.session_state.search_results:
+    st.dataframe(pd.DataFrame(st.session_state.search_results), use_container_width=True)
