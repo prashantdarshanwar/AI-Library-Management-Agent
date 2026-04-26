@@ -105,7 +105,6 @@ def get_groq_chat_response(user_query, context_override=None):
             "- If asked availability → say available or not\n"
             "- If asked location → give exact location\n"
             "- If multiple books → summarize\n"
-            "- DO NOT say 'based on data' or 'context'\n"
             "- Speak like you checked the system\n"
         )
 
@@ -134,11 +133,13 @@ Library Records:
         return f"Error: {str(e)}"
 
 
-# 🔥 FIXED BACKEND HANDLING (MAIN FIX)
+# 🚀 FIXED BACKEND (ROBUST PARSER)
 def fetch_from_backend(query):
     try:
+        url = f"{BACKEND_URL}/chat"
+
         response = requests.get(
-            f"{BACKEND_URL}/chat",
+            url,
             params={"message": query},
             timeout=10
         )
@@ -146,23 +147,27 @@ def fetch_from_backend(query):
         if response.status_code != 200:
             return None
 
-        data = response.json()
+        # SAFE JSON PARSE
+        try:
+            data = response.json()
+        except:
+            return None
 
-        # ✅ Case 1: direct list
+        # CASE 1: direct list
         if isinstance(data, list):
             return data
 
-        # ✅ Case 2: wrapped in "data"
-        if isinstance(data, dict) and "data" in data:
-            return data["data"]
-
-        # ✅ Case 3: wrapped in "books"
-        if isinstance(data, dict) and "books" in data:
-            return data["books"]
+        # CASE 2: wrapped responses
+        if isinstance(data, dict):
+            if "data" in data:
+                return data["data"]
+            if "books" in data:
+                return data["books"]
 
         return None
 
-    except:
+    except Exception as e:
+        print("Backend error:", e)
         return None
 
 
@@ -197,12 +202,14 @@ if user_input:
             reply = get_groq_chat_response(user_input, context)
             st.session_state.show_table = False
 
-        # CASE 2: BOOK QUERY
+        # CASE 2: BOOK SEARCH
         elif is_book_query(user_input):
 
             backend_data = fetch_from_backend(user_input)
 
-            if backend_data and len(backend_data) > 0:
+            # 🔥 FINAL SAFE CHECK
+            if backend_data is not None and len(backend_data) > 0:
+
                 st.session_state.search_results = backend_data
 
                 reply = get_groq_chat_response(
