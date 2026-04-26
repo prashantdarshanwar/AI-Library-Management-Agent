@@ -134,6 +134,7 @@ Library Records:
         return f"Error: {str(e)}"
 
 
+# 🔥 FIXED BACKEND HANDLING (MAIN FIX)
 def fetch_from_backend(query):
     try:
         response = requests.get(
@@ -141,8 +142,26 @@ def fetch_from_backend(query):
             params={"message": query},
             timeout=10
         )
-        if response.status_code == 200:
-            return response.json()
+
+        if response.status_code != 200:
+            return None
+
+        data = response.json()
+
+        # ✅ Case 1: direct list
+        if isinstance(data, list):
+            return data
+
+        # ✅ Case 2: wrapped in "data"
+        if isinstance(data, dict) and "data" in data:
+            return data["data"]
+
+        # ✅ Case 3: wrapped in "books"
+        if isinstance(data, dict) and "books" in data:
+            return data["books"]
+
+        return None
+
     except:
         return None
 
@@ -172,13 +191,13 @@ if user_input:
 
     with st.spinner("Processing..."):
 
-        # ✅ CASE 1: SUMMARY
+        # CASE 1: SUMMARY
         if "summary" in user_input.lower() and st.session_state.search_results:
             context = str(st.session_state.search_results)
             reply = get_groq_chat_response(user_input, context)
             st.session_state.show_table = False
 
-        # ✅ CASE 2: BOOK QUERY (UPDATED)
+        # CASE 2: BOOK QUERY
         elif is_book_query(user_input):
 
             backend_data = fetch_from_backend(user_input)
@@ -186,17 +205,18 @@ if user_input:
             if backend_data and len(backend_data) > 0:
                 st.session_state.search_results = backend_data
 
-                # 🔥 LLM interprets backend data
-                reply = get_groq_chat_response(user_input, context_override=str(backend_data))
+                reply = get_groq_chat_response(
+                    user_input,
+                    context_override=str(backend_data)
+                )
 
-                # keep your original behavior
                 st.session_state.show_table = len(backend_data) > 1
 
             else:
                 reply = "No books found."
                 st.session_state.show_table = False
 
-        # ✅ CASE 3: GENERAL AI
+        # CASE 3: GENERAL AI
         else:
             reply = get_groq_chat_response(user_input)
             st.session_state.show_table = False
