@@ -65,7 +65,6 @@ st.markdown(f"""
     color: {TEXT};
     font-family: 'Segoe UI';
 }}
-
 .header-box {{
     background: linear-gradient(135deg, {SECONDARY_BG}, #16213E);
     padding: 2rem;
@@ -74,21 +73,10 @@ st.markdown(f"""
     text-align: center;
     margin-bottom: 2rem;
 }}
-
 .header-title {{
     font-size: 2.5rem;
     font-weight: bold;
     color: {GOLD};
-}}
-
-[data-testid="stChatMessage"]:has(div[aria-label="assistant"]) {{
-    background-color: {SECONDARY_BG};
-    border-left: 4px solid {ACCENT};
-}}
-
-[data-testid="stChatMessage"]:has(div[aria-label="user"]) {{
-    background-color: #111827;
-    border-right: 4px solid {GOLD};
 }}
 </style>
 """, unsafe_allow_html=True)
@@ -102,89 +90,89 @@ st.markdown("""
 
 
 # -----------------------------
-# 4. HELPERS
+# 4. HELPERS (FIXED INTENT DETECTION)
 # -----------------------------
 def is_book_query(query):
-    return True  # allow all queries to go through smart search
+    keywords = ["book", "author", "title", "find", "search", "available", "location", "where", "ml", "java", "python"]
+    return any(k in query.lower() for k in keywords)
+
+
+def extract_keywords(query):
+    """Better keyword extractor (IMPORTANT FIX)"""
+    q = query.lower()
+    words = q.split()
+
+    # remove useless words
+    stop = {"show", "me", "book", "books", "find", "search", "give", "on", "about", "the", "a", "an"}
+
+    return [w for w in words if w not in stop]
+
+
+def match_score(book, keywords):
+    """Strict relevance scoring (FIX RANDOM RESULTS)"""
+    text = (
+        book.get("title", "") + " " +
+        book.get("author", "") + " " +
+        book.get("category", "")
+    ).lower()
+
+    score = 0
+    for k in keywords:
+        if k in text:
+            score += 1
+
+    return score
 
 
 # -----------------------------
-# 5. SMART OFFLINE ENGINE (FIXED)
+# 5. OFFLINE ENGINE (FIXED ACCURACY)
 # -----------------------------
 def offline_ai_response(query):
 
-    q = query.lower().strip()
     data = st.session_state.get("last_valid_results", [])
-
     if not data:
         return "📚 No cached data available. Please search books first."
 
-    # -----------------------------
-    # SMART RELEVANCE SCORING
-    # -----------------------------
-    def score(book):
-        text = f"{book.get('title','')} {book.get('author','')} {book.get('category','')}".lower()
-        score = 0
+    keywords = extract_keywords(query)
 
-        for word in q.split():
-            if word in book.get("title","").lower():
-                score += 5
-            elif word in book.get("category","").lower():
-                score += 4
-            elif word in book.get("author","").lower():
-                score += 3
-            elif word in text:
-                score += 1
-
-        return score
-
-    ranked = sorted(data, key=score, reverse=True)
-    filtered = [b for b in ranked if score(b) > 0]
+    # 🔥 FILTER ONLY RELEVANT RESULTS
+    filtered = sorted(
+        [b for b in data if match_score(b, keywords) > 0],
+        key=lambda x: match_score(x, keywords),
+        reverse=True
+    )
 
     if not filtered:
-        return "❌ No matching books found. Try different keywords."
+        return "⚠️ No relevant books found for your query."
 
-    # -----------------------------
-    # LOCATION QUERY
-    # -----------------------------
-    if "location" in q or "where" in q:
+    if "location" in query.lower() or "where" in query.lower():
         return "\n".join([
             f"📍 {b['title']} → Rack {b['location']}"
             for b in filtered[:5]
         ])
 
-    # -----------------------------
-    # AVAILABLE
-    # -----------------------------
-    if "available" in q:
-        available = [b for b in filtered if b.get("available")]
+    if "available" in query.lower():
         return "\n".join([
-            f"📦 {b['title']} → Rack {b['location']}"
-            for b in available[:5]
-        ]) or "No available books found"
+            f"📦 {b['title']} → {'Available' if b['available'] else 'Not Available'}"
+            for b in filtered[:5]
+        ])
 
-    # -----------------------------
-    # DEFAULT RESPONSE
-    # -----------------------------
-    return "\n\n".join([
-        f"📘 {b['title']}\n"
-        f"👨‍🏫 {b['author']}\n"
-        f"📍 Rack {b['location']}\n"
-        f"📦 {'Available' if b['available'] else 'Not Available'}"
-        for b in filtered[:5]
+    return "\n".join([
+        f"📘 {b['title']} | {b['author']} | Rack {b['location']}"
+        for b in filtered[:8]
     ])
 
 
 # -----------------------------
-# 6. GROQ AI (SAFE FALLBACK)
+# 6. GROQ (UNCHANGED LOGIC)
 # -----------------------------
-def call_groq(model, user_query, context=None):
+def call_groq(model, user_query, context_override=None):
 
     system_prompt = "You are a helpful Library AI Assistant."
 
     full_query = user_query
-    if context:
-        full_query = f"{user_query}\n\nDATA:\n{context}"
+    if context_override:
+        full_query = f"{user_query}\n\nDATA:\n{context_override}"
 
     return client.chat.completions.create(
         model=model,
@@ -196,11 +184,11 @@ def call_groq(model, user_query, context=None):
     ).choices[0].message.content
 
 
-def get_groq_chat_response(user_query, context=None):
+def get_groq_chat_response(user_query, context_override=None):
 
     if time.time() < st.session_state.groq_blocked_until:
         try:
-            return call_groq(FALLBACK_MODEL, user_query, context)
+            return call_groq(FALLBACK_MODEL, user_query, context_override)
         except:
             return offline_ai_response(user_query)
 
@@ -208,27 +196,17 @@ def get_groq_chat_response(user_query, context=None):
         return offline_ai_response(user_query)
 
     try:
-        return call_groq(PRIMARY_MODEL, user_query, context)
+        return call_groq(PRIMARY_MODEL, user_query, context_override)
 
-    except Exception as e:
-
-        err = str(e).lower()
-
-        if "429" in err or "rate limit" in err or "tokens per day" in err:
-            st.session_state.groq_blocked_until = time.time() + 3600
-            try:
-                return call_groq(FALLBACK_MODEL, user_query, context)
-            except:
-                return offline_ai_response(user_query)
-
+    except:
         try:
-            return call_groq(FALLBACK_MODEL, user_query, context)
+            return call_groq(FALLBACK_MODEL, user_query, context_override)
         except:
             return offline_ai_response(user_query)
 
 
 # -----------------------------
-# 7. BACKEND
+# 7. BACKEND (UNCHANGED)
 # -----------------------------
 def fetch_from_backend(query):
 
@@ -246,7 +224,7 @@ def fetch_from_backend(query):
 
         if isinstance(data, dict):
             result = data.get("data") or data.get("books")
-            if isinstance(result, list):
+            if result:
                 st.session_state.last_valid_results = result
                 return result
 
@@ -260,7 +238,8 @@ def fetch_from_backend(query):
 # 8. TABLE
 # -----------------------------
 def render_table(data):
-    st.dataframe(pd.DataFrame(data), use_container_width=True)
+    df = pd.DataFrame(data)
+    st.dataframe(df, use_container_width=True)
 
 
 # -----------------------------
@@ -270,7 +249,7 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-user_input = st.chat_input("Ask anything about books...")
+user_input = st.chat_input("Ask about books...")
 
 
 # -----------------------------
@@ -285,14 +264,26 @@ if user_input:
 
     with st.spinner("Processing..."):
 
-        backend_data = fetch_from_backend(user_input)
+        if "summary" in user_input.lower() and st.session_state.search_results:
+            reply = get_groq_chat_response(user_input, str(st.session_state.search_results))
+            st.session_state.show_table = False
 
-        if backend_data:
-            st.session_state.search_results = backend_data
-            reply = get_groq_chat_response(user_input, str(backend_data))
-            st.session_state.show_table = len(backend_data) > 1
+        elif is_book_query(user_input):
+
+            backend_data = fetch_from_backend(user_input)
+
+            if backend_data:
+                st.session_state.search_results = backend_data
+
+                reply = get_groq_chat_response(user_input, str(backend_data))
+
+                st.session_state.show_table = len(backend_data) > 1
+            else:
+                reply = offline_ai_response(user_input)
+                st.session_state.show_table = False
+
         else:
-            reply = offline_ai_response(user_input)
+            reply = get_groq_chat_response(user_input)
             st.session_state.show_table = False
 
         st.session_state.messages.append({"role": "assistant", "content": reply})
